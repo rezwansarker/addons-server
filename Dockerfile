@@ -38,7 +38,9 @@ RUN yum install -y \
         mysql-community-libs \
         epel-release \
         swig \
-    && yum clean all
+    && yum clean all \
+    && rm -fr /var/cache/yum \
+    && curl -sSL https://bootstrap.pypa.io/get-pip.py | python
 
 # Compile required locale
 RUN localedef -i en_US -f UTF-8 en_US.UTF-8
@@ -48,30 +50,13 @@ RUN localedef -i en_US -f UTF-8 en_US.UTF-8
 ENV LANG en_US.UTF-8
 ENV LC_ALL en_US.UTF-8
 
-
-RUN yum install -y python-pip
-
-# Until https://github.com/shazow/urllib3/commit/959d47d926e1331ad571dbfc150c9a3acb7a1eb9 lands
-RUN pip install pyOpenSSL ndg-httpsclient pyasn1 certifi urllib3
-
-# ipython / ipdb for easier debugging, supervisor to run services
-RUN pip install ipython ipdb supervisor
-
-COPY . /code
-WORKDIR /code
+RUN mkdir -p /code/
 
 ENV PIP_BUILD=/deps/build/
 ENV PIP_CACHE_DIR=/deps/cache/
 ENV PIP_SRC=/deps/src/
 ENV NPM_CONFIG_PREFIX=/deps/
 ENV SWIG_FEATURES="-D__x86_64__"
-
-# Install all python requires
-RUN mkdir -p /deps/{build,cache,src}/ && \
-    ln -s /code/package.json /deps/package.json && \
-    pip install --upgrade pip && \
-    make update_deps && \
-    rm -r /deps/build/ /deps/cache/
 
 # Preserve bash history across image updates.
 # This works best when you link your local source code
@@ -90,3 +75,19 @@ ENV LESS_BIN /deps/node_modules/.bin/lessc
 ENV STYLUS_BIN /deps/node_modules/.bin/stylus
 ENV UGLIFY_BIN /deps/node_modules/.bin/uglifyjs
 ENV ADDONS_LINTER_BIN /deps/node_modules/.bin/addons-linter
+
+ADD requirements/ /code/requirements/
+
+# Install all python requires
+RUN mkdir -p /deps/{build,cache,src}/ \
+    && ln -s /code/package.json /deps/package.json \
+    && pip install \
+        # Ensure that we install neccessary dependencies for pip to verify tls certificates
+        urllib3[secure] \
+        # ipython / ipdb for easier debugging, supervisor to run services
+        ipython ipdb supervisor \
+    && make update_deps \
+    && rm -r /deps/build/ /deps/cache/
+
+COPY . /code
+WORKDIR /code
